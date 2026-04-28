@@ -1,0 +1,287 @@
+// HireSense AI - Prisma Schema
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  RECRUITER
+  ADMIN
+}
+
+enum CandidateStatus {
+  NEW
+  SCREENING
+  INTERVIEW
+  OFFER
+  REJECTED
+  HIRED
+}
+
+// Users and Authentication
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  name          String?
+  password      String?
+  image         String?
+  role          UserRole @default(RECRUITER)
+  emailVerified DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  accounts      Account[]
+  sessions      Session[]
+  jobRoles      JobRole[]
+  candidates    Candidate[]
+  evaluations   Evaluation[]
+  shareLinks    ShareLink[]
+  notes         Note[]
+  tags          Tag[]
+  auditLogs     AuditLog[]
+
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// Job Roles
+model JobRole {
+  id          String   @id @default(cuid())
+  ownerId     String
+  title       String
+  department  String?
+  seniority   String?
+  location    String?
+  remoteType  String?  // On-site, Hybrid, Remote
+  
+  // Structured JD fields
+  jdText      String   // Full JD text
+  requiredSkills    String? // JSON array
+  niceToHaveSkills  String? // JSON array
+  responsibilities  String? // JSON array
+  yearsExperience   String?
+  salaryMin         Int?
+  salaryMax         Int?
+  mustHaveKeywords  String? // JSON array
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  owner       User         @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  evaluations Evaluation[]
+
+  @@map("job_roles")
+}
+
+// Candidates
+model Candidate {
+  id          String           @id @default(cuid())
+  ownerId     String
+  
+  // Extracted from CV
+  name        String?
+  email       String?
+  phone       String?
+  location    String?
+  linkedin    String?
+  website     String?
+  github      String?
+  summary     String?
+  skills      String?   // JSON array
+  experience  String?   // JSON array of work experiences
+  education   String?   // JSON array
+  certifications String? // JSON array
+  languages   String?   // JSON array
+  projects    String?   // JSON array
+  
+  // File storage
+  cvFilePath  String?
+  cvText      String?   // Extracted text from CV
+  extractedJson String? // Full JSON extraction from AI
+  
+  // Status tracking
+  status      CandidateStatus @default(NEW)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  owner       User         @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  evaluations Evaluation[]
+  notes       Note[]
+  tags        CandidateTag[]
+
+  @@map("candidates")
+}
+
+// Evaluations
+model Evaluation {
+  id            String   @id @default(cuid())
+  ownerId       String
+  jobRoleId     String
+  candidateId   String
+  
+  // Scoring
+  fitScore      Int      // 0-100
+  categoryScores String? // JSON: skillsMatch, experienceRelevance, seniorityFit, domainFit, communication, cultureSignals
+  
+  // Breakdown
+  breakdownJson String?  // JSON with detailed breakdown
+  whyThisScore  String?  // JSON array of bullet points
+  matchedKeywords String? // JSON array
+  gaps          String?  // JSON array
+  riskFlags     String?  // JSON array
+  
+  // Interview Kit
+  interviewKitJson String? // JSON with 12 questions grouped
+  
+  // Summary
+  summaryText   String?  // Recruiter-ready summary
+  strengths     String?  // JSON array of 5 strengths
+  concerns      String?  // JSON array of 5 concerns
+  recommendation String? // PROCEED, MAYBE, NO
+  confidence    Int?     // 0-100
+  
+  // AI Model info
+  modelUsed     String?
+  modelVersion  String?
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  owner         User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  jobRole       JobRole   @relation(fields: [jobRoleId], references: [id], onDelete: Cascade)
+  candidate     Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  shareLinks    ShareLink[]
+
+  @@map("evaluations")
+}
+
+// Share Links
+model ShareLink {
+  id            String   @id @default(cuid())
+  evaluationId  String
+  token         String   @unique
+  expiresAt     DateTime?
+  viewCount     Int      @default(0)
+  createdBy     String
+  
+  createdAt     DateTime @default(now())
+
+  // Relations
+  evaluation    Evaluation @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
+  creator       User       @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+
+  @@map("share_links")
+}
+
+// Notes for candidates
+model Note {
+  id           String   @id @default(cuid())
+  candidateId  String
+  authorId     String
+  content      String
+  
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations
+  candidate    Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  author       User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@map("notes")
+}
+
+// Tags
+model Tag {
+  id        String   @id @default(cuid())
+  ownerId   String
+  name      String
+  color     String?  // Hex color code
+  
+  createdAt DateTime @default(now())
+
+  // Relations
+  owner         User           @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  candidates    CandidateTag[]
+
+  @@unique([ownerId, name])
+  @@map("tags")
+}
+
+// Candidate-Tag junction
+model CandidateTag {
+  candidateId  String
+  tagId        String
+  
+  createdAt    DateTime @default(now())
+
+  // Relations
+  candidate    Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  tag          Tag       @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([candidateId, tagId])
+  @@map("candidate_tags")
+}
+
+// Audit Log
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String
+  action    String
+  entityType String
+  entityId  String?
+  details   String?  // JSON
+  
+  createdAt DateTime @default(now())
+
+  // Relations
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("audit_logs")
+}
